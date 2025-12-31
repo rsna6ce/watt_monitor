@@ -85,7 +85,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>ESP32 Power Monitor</title>
+  <title>ESP32 Watt Monitor</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body { font-family: Arial; text-align: center; margin: 20px; }
@@ -95,9 +95,9 @@ const char index_html[] PROGMEM = R"rawliteral(
   </style>
 </head>
 <body>
-  <h1>ESP32 4ch Power Monitor</h1>
+  <h1>ESP32 4ch Watt Monitor</h1>
   <table>
-    <tr><th>Channel</th><th>Latest (W)</th><th>1min Avg (W)</th></tr>
+    <tr><th>Channel</th><th>Now (W)</th><th>1min Avg (W)</th></tr>
     <tr><td>CH1</td><td class="value" id="p1">-</td><td class="value" id="a1">-</td></tr>
     <tr><td>CH2</td><td class="value" id="p2">-</td><td class="value" id="a2">-</td></tr>
     <tr><td>CH3</td><td class="value" id="p3">-</td><td class="value" id="a3">-</td></tr>
