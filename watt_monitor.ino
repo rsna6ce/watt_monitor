@@ -1,39 +1,179 @@
-#include <driver/adc.h>
-#include <math.h>
-#include "SPIFFSIni.h"
 #include <WiFi.h>
+#include <WebServer.h>
+#include <SPIFFS.h>
+#include "SPIFFSIni.h"
+#include "favicon_data.h"
+#include <math.h>
+#include <driver/adc.h>
 
-/*電力系定義*/
-const int ADC_PIN = 34;
+// ==================== 設定 ====================
 const uint32_t ADC_MAX = 4095;
 const double ESP32_VCC = 3.3;
 const double VOLTAGE = 100.0;
 const double calibration = 15.0;
-double offset = ADC_MAX / 2.0;
-int num_channel = 4;
 
-/* 電力線形補正初期値 */
-float gain = 1.060;
-float bias = -42.0;
+const int adc_pins[4] = {32, 33, 34, 35};  // CH1〜CH4
 
-/*Wifi系定義*/
-const int wifi_timeout_sec = 10;
-const int wifi_retry_count = 3;
-
-/*gpio定義*/
 const int LED_PIN = 2;
 const int SW_PIN = 0;
+const int wifi_timeout_sec = 10;
+const int wifi_retry_count = 3;
+const unsigned long wifi_check_interval = 60000; // 1分（60,000ms）
+const unsigned long wifi_recconect_interval = 30000;  // 30[s]
+unsigned long last_wiFi_check = 0;
 
+// 永続化設定（デフォルト値）
+int num_channel = 4;
+float watt_gain = 1.060;
+float watt_bias = -42.0;
+
+
+// ==================== グローバル ====================
+WebServer server(80);
+
+double offset[4] = {ADC_MAX / 2.0, ADC_MAX / 2.0, ADC_MAX / 2.0, ADC_MAX / 2.0};
+
+// 各チャネルの最新値と1分移動平均（60要素FIFO）
+double latest_power[4] = {0};
+double avg_power[4] = {0};
+double power_fifo[4][60] = {{0}};
+int fifo_index[4] = {0};
+
+SPIFFSIni config("/config.ini", true);
+
+// ==================== 電力測定タスク (Core 0) ====================
+void powerTask(void *pvParameters) {
+  const uint16_t samples = 1024;
+
+  while (true) {
+    for (int ch = 0; ch < num_channel; ch++) {
+      double sum_squares = 0.0;
+      int pin = adc_pins[ch];
+
+      for (uint16_t i = 0; i < samples; i++) {
+        double val = (double)analogRead(pin);
+        offset[ch] += (val - offset[ch]) / 4096.0;
+        double filtered = val - offset[ch];
+        sum_squares += filtered * filtered;
+      }
+
+      double coeff = calibration * (ESP32_VCC / ADC_MAX);
+      double Irms = coeff * sqrt(sum_squares / samples);
+      if (Irms < 0.0) Irms = 0.0;
+
+      double raw_power = Irms * VOLTAGE;
+      double corrected = raw_power * watt_gain + watt_bias;
+      if (corrected < 0.0) corrected = 0.0;
+
+      // FIFO更新 & 移動平均計算
+      power_fifo[ch][fifo_index[ch]] = corrected;
+      fifo_index[ch] = (fifo_index[ch] + 1) % 60;
+
+      double sum = 0.0;
+      for (int i = 0; i < 60; i++) sum += power_fifo[ch][i];
+      avg_power[ch] = sum / 60.0;
+
+      latest_power[ch] = corrected;
+    }
+    vTaskDelay(1000 / portTICK_PERIOD_MS);  // 1秒間隔
+  }
+}
+
+// ==================== WebページHTML ====================
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>ESP32 Power Monitor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: Arial; text-align: center; margin: 20px; }
+    table { margin: 20px auto; border-collapse: collapse; }
+    th, td { padding: 10px; border: 1px solid #ccc; }
+    .value { font-size: 1.5em; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>ESP32 4ch Power Monitor</h1>
+  <table>
+    <tr><th>Channel</th><th>Latest (W)</th><th>1min Avg (W)</th></tr>
+    <tr><td>CH1</td><td class="value" id="p1">-</td><td class="value" id="a1">-</td></tr>
+    <tr><td>CH2</td><td class="value" id="p2">-</td><td class="value" id="a2">-</td></tr>
+    <tr><td>CH3</td><td class="value" id="p3">-</td><td class="value" id="a3">-</td></tr>
+    <tr><td>CH4</td><td class="value" id="p4">-</td><td class="value" id="a4">-</td></tr>
+  </table>
+  <p>Last update: <span id="time">-</span></p>
+  <p><a href="/config">Config Page</a></p>
+
+<script>
+function update() {
+  fetch('/api/power')
+    .then(r => r.json())
+    .then(data => {
+      for (let i = 1; i <= 4; i++) {
+        document.getElementById('p' + i).textContent = data.latest[i-1].toFixed(1);
+        document.getElementById('a' + i).textContent = data.avg[i-1].toFixed(1);
+      }
+      document.getElementById('time').textContent = new Date().toLocaleTimeString();
+    });
+}
+setInterval(update, 1000);
+update();
+</script>
+</body>
+</html>
+)rawliteral";
+
+const char config_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Config</title>
+  <style> body { font-family: Arial; text-align: center; margin: 40px; } </style>
+</head>
+<body>
+<h1>Config</h1>
+<form action="/save" method="post">
+  Channels (1-4): <input type="number" name="num_channel" min="1" max="4" value="%NUM_CHANNEL%"><br><br>
+  Watt Gain: <input type="text" name="watt_gain" value="%WATT_GAIN%"><br><br>
+  Watt Bias: <input type="text" name="watt_bias" value="%WATT_BIAS%"><br><br>
+  <input type="submit" value="Save">
+</form>
+<p><a href="/">Back to Monitor</a></p>
+<div id="msg"></div>
+</body>
+</html>
+)rawliteral";
+
+String serial_input_sync(String msg) {
+    Serial.println(msg);
+    while (Serial.available() == 0) {}
+    String input_str = Serial.readStringUntil('\n');
+    input_str.trim();
+    return input_str;
+}
+
+// ==================== setup ====================
 void setup() {
   Serial.begin(115200);
-  Serial.setTimeout(90000);
-  SPIFFSIni config("/config.ini", true);
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, HIGH);
-  pinMode(SW_PIN, INPUT_PULLUP);
 
-  adc1_config_width(ADC_WIDTH_BIT_12);
-  adc1_config_channel_atten(ADC1_CHANNEL_6, ADC_ATTEN_DB_11);
+  if (!SPIFFS.begin(true)) {
+    Serial.println("SPIFFS Mount Failed");
+    return;
+  }
+
+  if (config.exist("num_channel")) num_channel = config.read("num_channel").toInt();
+  if (config.exist("watt_gain")) watt_gain = config.read("watt_gain").toFloat();
+  if (config.exist("watt_bias")) watt_bias = config.read("watt_bias").toFloat();
+  num_channel = constrain(num_channel, 1, 4);
+
+  // ADC設定
+  analogReadResolution(12);
+  for (int i = 0; i < 4; i++) {
+    adc1_config_channel_atten((adc1_channel_t)(adc_pins[i] - 32 + ADC1_CHANNEL_0), ADC_ATTEN_DB_11);
+  }
 
   /* MACアドレス表示 */
   {
@@ -154,48 +294,93 @@ void setup() {
       config.write("dnsaddr.", dnsaddr);
     }
   }
+
+  // ====== Webサーバー設定（同期型）======
+  server.on("/", HTTP_GET, []() {
+    server.send_P(200, "text/html", index_html);
+  });
+
+  server.on("/api/power", HTTP_GET, []() {
+    String json = "{\"latest\":[";
+    for (int i = 0; i < num_channel; i++) {
+      json += String(latest_power[i], 1);
+      if (i < num_channel - 1) json += ",";
+    }
+    json += "],\"avg\":[";
+    for (int i = 0; i < num_channel; i++) {
+      json += String(avg_power[i], 1);
+      if (i < num_channel - 1) json += ",";
+    }
+    json += "]}";
+    server.send(200, "application/json", json);
+  });
+
+  server.on("/favicon.ico", HTTP_GET, []() {
+    server.send_P(200, "image/png", (const char*)favicon_data, favicon_size);
+  });
+
+  server.on("/config", HTTP_GET, []() {
+    String html = String(config_html);
+    html.replace("%NUM_CHANNEL%", String(num_channel));
+    html.replace("%WATT_GAIN%", String(watt_gain, 4));
+    html.replace("%WATT_BIAS%", String(watt_bias, 4));
+    server.send(200, "text/html", html.c_str());
+  });
+
+  server.on("/save", HTTP_POST, []() {
+    if (server.hasArg("num_channel")) {
+      num_channel = server.arg("num_channel").toInt();
+      num_channel = constrain(num_channel, 1, 4);
+      config.write("num_channel", String(num_channel));
+    }
+    if (server.hasArg("watt_gain")) {
+      watt_gain = server.arg("watt_gain").toFloat();
+      config.write("watt_gain", String(watt_gain));
+    }
+    if (server.hasArg("watt_bias")) {
+      watt_bias = server.arg("watt_bias").toFloat();
+      config.write("watt_bias", String(watt_bias));
+    }
+    server.send(200, "text/html", "<h1>Saved! Rebooting...</h1><script>setTimeout(()=>{location='/';},2000);</script>");
+    delay(1000);
+    ESP.restart();
+  });
+
+  server.begin();
+  Serial.println("HTTP server started");
+
+  // 電力測定タスク起動
+  xTaskCreatePinnedToCore(powerTask, "PowerTask", 10000, NULL, 1, NULL, 0);
 }
 
-String serial_input_sync(String msg) {
-    Serial.println(msg);
-    while (Serial.available() == 0) {}
-    String input_str = Serial.readStringUntil('\n');
-    input_str.trim();
-    return input_str;
-}
+static int blinkLED = 0;
+void loop() {
+  digitalWrite(LED_PIN, (++blinkLED&1));
+  server.handleClient();
+  delay(1);
 
-
-double getIrms(uint16_t samples, int adc_pin) {
-  double sum_squares = 0.0;
-  for (uint16_t i = 0; i < samples; i++) {
-    double val = (double)analogRead(adc_pin);
-    offset += (val - offset) / 4096.0;
-    double filtered = val - offset;
-    sum_squares += filtered * filtered;
+  // 1分ごとにWiFi接続を確認
+  unsigned long currentMillis = millis();
+  if (currentMillis - last_wiFi_check >= wifi_check_interval) {
+      last_wiFi_check = currentMillis;
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("WiFi disconnected. Attempting to reconnect...");
+        WiFi.disconnect();
+        WiFi.reconnect();
+        
+        unsigned long startAttemptTime = millis();
+        while (WiFi.status() != WL_CONNECTED && 
+               millis() - startAttemptTime < wifi_recconect_interval) {
+            delay(100);
+            Serial.print(".");
+        }
+        if (WiFi.status() == WL_CONNECTED) {
+            Serial.println("\nWiFi reconnected");
+            Serial.println(WiFi.localIP());
+        } else {
+            Serial.println("\nFailed to reconnect to WiFi");
+        }
+    }
   }
 
-  double coeff = calibration * (ESP32_VCC / ADC_MAX);
-  double Irms = coeff * sqrt(sum_squares / samples);
-
-  if (Irms < 0.0) Irms = 0.0;
-
-  return Irms;
-}
-
-void loop() {
-  double Irms = getIrms(1024, ADC_PIN);
-  double power = Irms * VOLTAGE;
-
-  double corrected_power = power * gain + bias;
-  if (corrected_power < 0.0) corrected_power = 0.0;
-
-  Serial.print("Current: ");
-  Serial.print(Irms, 3);
-  Serial.print(" A  |  Power: ");
-  Serial.print(power, 1);
-  Serial.print(" W  |  Corrected: ");
-  Serial.print(corrected_power, 1);
-  Serial.println(" W");
-
-  delay(1000);
 }
