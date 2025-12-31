@@ -328,22 +328,43 @@ void setup() {
   });
 
   server.on("/save", HTTP_POST, []() {
+  String message = "<h1 style='color:green;'>Configuration Saved Successfully!</h1>"
+                   "<p>Settings have been applied immediately.</p>"
+                   "<p><a href='/'>Back to Monitor</a> | <a href='/config'>Back to Config</a></p>";
+
+    bool changed = false;
+
     if (server.hasArg("num_channel")) {
-      num_channel = server.arg("num_channel").toInt();
-      num_channel = constrain(num_channel, 1, 4);
-      config.write("num_channel", String(num_channel));
+      int new_val = server.arg("num_channel").toInt();
+      if (new_val >= 1 && new_val <= 4 && new_val != num_channel) {
+        num_channel = new_val;
+        config.write("num_channel", String(num_channel));
+        changed = true;
+      }
     }
     if (server.hasArg("watt_gain")) {
-      watt_gain = server.arg("watt_gain").toFloat();
-      config.write("watt_gain", String(watt_gain));
+      float new_val = server.arg("watt_gain").toFloat();
+      if (new_val != watt_gain) {
+        watt_gain = new_val;
+        config.write("watt_gain", String(watt_gain));
+        changed = true;
+      }
     }
     if (server.hasArg("watt_bias")) {
-      watt_bias = server.arg("watt_bias").toFloat();
-      config.write("watt_bias", String(watt_bias));
+      float new_val = server.arg("watt_bias").toFloat();
+      if (new_val != watt_bias) {
+        watt_bias = new_val;
+        config.write("watt_bias", String(watt_bias));
+        changed = true;
+      }
     }
-    server.send(200, "text/html", "<h1>Saved! Rebooting...</h1><script>setTimeout(()=>{location='/';},2000);</script>");
-    delay(1000);
-    ESP.restart();
+
+    if (!changed) {
+      message = "<h1 style='color:orange;'>No changes detected.</h1>"
+                "<p><a href='/config'>← Back to Config</a></p>";
+    }
+
+    server.send(200, "text/html", message);
   });
 
   server.begin();
