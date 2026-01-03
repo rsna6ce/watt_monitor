@@ -95,7 +95,7 @@ const char index_html[] PROGMEM = R"rawliteral(
   </style>
 </head>
 <body>
-  <h1>ESP32 4ch Watt Monitor</h1>
+  <h1>ESP32 Watt Monitor</h1>
   <table>
     <tr><th>Channel</th><th>Now (W)</th><th>1min Avg (W)</th></tr>
     <tr><td>CH1</td><td class="value" id="p1">-</td><td class="value" id="a1">-</td></tr>
@@ -361,7 +361,7 @@ void setup() {
 
     if (!changed) {
       message = "<h1 style='color:orange;'>No changes detected.</h1>"
-                "<p><a href='/config'>← Back to Config</a></p>";
+                "<p><a href='/config'>Back to Config</a></p>";
     }
 
     server.send(200, "text/html", message);
