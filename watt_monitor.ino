@@ -6,34 +6,33 @@
 #include <math.h>
 #include <driver/adc.h>
 
-// ==================== 設定 ====================
+// ==================== Configuration ====================
 const uint32_t ADC_MAX = 4095;
 const double ESP32_VCC = 3.3;
-const double VOLTAGE = 100.0;
-const double calibration = 15.0;
+const double VOLTAGE = 100.0;           // Assumed line voltage (V)
+const double calibration = 15.0;        // Current sensor calibration (A/V)
 
-const int adc_pins[4] = {32, 33, 34, 35};  // CH1〜CH4
+const int adc_pins[4] = {32, 33, 34, 35};  // CH1 to CH4
 
 const int LED_PIN = 2;
 const int SW_PIN = 0;
 const int wifi_timeout_sec = 10;
 const int wifi_retry_count = 3;
-const unsigned long wifi_check_interval = 60000; // 1分（60,000ms）
-const unsigned long wifi_recconect_interval = 30000;  // 30[s]
+const unsigned long wifi_check_interval = 60000; // 1 minute (60,000 ms)
+const unsigned long wifi_recconect_interval = 30000;  // 30 seconds
 unsigned long last_wiFi_check = 0;
 
-// 永続化設定（デフォルト値）
+// Persistent settings (default values)
 int num_channel = 4;
 float watt_gain = 1.00;
 float watt_bias = -5.0;
 
-
-// ==================== グローバル ====================
+// ==================== Globals ====================
 WebServer server(80);
 
 double offset[4] = {ADC_MAX / 2.0, ADC_MAX / 2.0, ADC_MAX / 2.0, ADC_MAX / 2.0};
 
-// 各チャネルの最新値と1分移動平均（60要素FIFO）
+// Latest value and 1-minute moving average for each channel (60-element FIFO)
 double latest_power[4] = {0};
 double avg_power[4] = {0};
 double power_fifo[4][60] = {{0}};
@@ -41,7 +40,7 @@ int fifo_index[4] = {0};
 
 SPIFFSIni config("/config.ini", true);
 
-// ==================== 電力測定タスク (Core 0) ====================
+// ==================== Power Measurement Task (Core 0) ====================
 void powerTask(void *pvParameters) {
   const uint16_t samples = 1024;
 
@@ -52,7 +51,7 @@ void powerTask(void *pvParameters) {
 
       for (uint16_t i = 0; i < samples; i++) {
         double val = (double)analogRead(pin);
-        offset[ch] += (val - offset[ch]) / 4096.0;
+        offset[ch] += (val - offset[ch]) / 4096.0;  // Slow DC offset tracking
         double filtered = val - offset[ch];
         sum_squares += filtered * filtered;
       }
@@ -65,7 +64,7 @@ void powerTask(void *pvParameters) {
       double corrected = raw_power * watt_gain + watt_bias;
       if (corrected < 0.0) corrected = 0.0;
 
-      // FIFO更新 & 移動平均計算
+      // Update FIFO and calculate moving average
       power_fifo[ch][fifo_index[ch]] = corrected;
       fifo_index[ch] = (fifo_index[ch] + 1) % 60;
 
@@ -75,14 +74,14 @@ void powerTask(void *pvParameters) {
 
       latest_power[ch] = corrected;
     }
-    vTaskDelay(1000 / portTICK_PERIOD_MS);  // 1秒間隔
+    vTaskDelay(1000 / portTICK_PERIOD_MS);  // Measure every 1 second
   }
 }
 
-// ==================== WebページHTML ====================
+// ==================== Web Page HTML ====================
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>ESP32 Watt Monitor</title>
@@ -128,14 +127,14 @@ update();
 
 const char config_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>Config</title>
   <style> body { font-family: Arial; text-align: center; margin: 40px; } </style>
 </head>
 <body>
-<h1>Config</h1>
+<h1>Configuration</h1>
 <form action="/save" method="post">
   Channels (1-4): <input type="number" name="num_channel" min="1" max="4" value="%NUM_CHANNEL%"><br><br>
   Watt Gain: <input type="text" name="watt_gain" value="%WATT_GAIN%"><br><br>
@@ -165,18 +164,19 @@ void setup() {
     return;
   }
 
+  // Load persistent settings
   if (config.exist("num_channel")) num_channel = config.read("num_channel").toInt();
   if (config.exist("watt_gain")) watt_gain = config.read("watt_gain").toFloat();
   if (config.exist("watt_bias")) watt_bias = config.read("watt_bias").toFloat();
   num_channel = constrain(num_channel, 1, 4);
 
-  // ADC設定
+  // ADC configuration
   analogReadResolution(12);
   for (int i = 0; i < 4; i++) {
     adc1_config_channel_atten((adc1_channel_t)(adc_pins[i] - 32 + ADC1_CHANNEL_0), ADC_ATTEN_DB_11);
   }
 
-  /* MACアドレス表示 */
+  /* Display MAC address */
   {
     uint8_t baseMac[6];
     esp_read_mac(baseMac, ESP_MAC_WIFI_STA);
@@ -186,7 +186,7 @@ void setup() {
     Serial.println(baseMacChr);
   }
 
-  /* Wifi接続設定 */
+  /* Wi-Fi configuration */
   String ssid = config.read("ssid");
   String pass = config.read("pass");
   String ipaddr = config.read("ipaddr");
@@ -194,33 +194,33 @@ void setup() {
   String subnet = config.read("subnet");
   String dnsaddr = config.read("dnsaddr.");
 
-  /*reset wifi settings*/
-  Serial.println("To reset the SSID, press the y key within 3 seconds.");
-  delay(3*1000);
+  /* Option to reset Wi-Fi settings */
+  Serial.println("To reset the SSID, press the 'y' key within 3 seconds.");
+  delay(3000);
   if (Serial.available() > 0) {
-    int inmyte = Serial.read();
-    if (inmyte == 'y') {
+    int inbyte = Serial.read();
+    if (inbyte == 'y') {
       ssid = "";
       pass = "";
     }
-    String frush_str = Serial.readString(); // flush buffer
+    String flush_str = Serial.readString(); // Flush remaining input
   }
 
   bool new_ssid_pass = false;
   if (ssid == "" || pass == "") {
     while(true) {
-      Serial.println("input wifi setting. ssid and pass.");
-      ssid = serial_input_sync("ssid?");
-      pass = serial_input_sync("pass?");
-      String confirm_msg = "ssid:" + ssid + "  pass:" + pass + "\r\n";
-      if (serial_input_sync("use fixed ip? (yes/no)") == "yes") {
-        ipaddr = serial_input_sync("ip addr?");
-        gateway = serial_input_sync("gateway?");
-        subnet = serial_input_sync("subnet mask?");
-        dnsaddr = serial_input_sync("dnsaddr addr?");
+      Serial.println("Enter Wi-Fi settings: SSID and password.");
+      ssid = serial_input_sync("SSID?");
+      pass = serial_input_sync("Password?");
+      String confirm_msg = "SSID: " + ssid + "  Password: " + pass + "\r\n";
+      if (serial_input_sync("Use fixed IP? (yes/no)") == "yes") {
+        ipaddr = serial_input_sync("IP address?");
+        gateway = serial_input_sync("Gateway?");
+        subnet = serial_input_sync("Subnet mask?");
+        dnsaddr = serial_input_sync("DNS address?");
         confirm_msg +=
-          "ipaddr:" + ipaddr + "  gateway:" + gateway + "\r\n" +
-          "subnet:" + subnet + "  dnsaddr:" + dnsaddr +"\r\n";
+          "IP: " + ipaddr + "  Gateway: " + gateway + "\r\n" +
+          "Subnet: " + subnet + "  DNS: " + dnsaddr + "\r\n";
       }
       String yes_no = serial_input_sync(confirm_msg + "OK? (yes/no)");
       if (yes_no == "yes" || yes_no == "y") {
@@ -242,7 +242,7 @@ void setup() {
   bool is_subnet = ip_subnet.fromString(subnet);
   bool is_dnsaddr = ip_dnsaddr.fromString(dnsaddr);
   if (is_ipaddr && is_gateway && is_subnet && is_dnsaddr) {
-    Serial.println("fixed ip");
+    Serial.println("Using static IP");
     Serial.println(ip_ipaddr);
     Serial.println(ip_gateway);
     Serial.println(ip_subnet);
@@ -250,14 +250,15 @@ void setup() {
     delay(100);
     if (!WiFi.config(ip_ipaddr, ip_gateway, ip_subnet, ip_dnsaddr)) {
       Serial.println("STA Failed to configure");
-      Serial.println("Restart ...");
+      Serial.println("Restarting...");
       esp_restart();
     }
   }
+
   int wifi_status = WL_DISCONNECTED;
   WiFi.begin(ssid_c_str, pass_c_str);
   for(int retry=0; retry<wifi_retry_count; retry++) {
-    for (int i=0; (i < wifi_timeout_sec*2) && (wifi_status!= WL_CONNECTED); i++) {
+    for (int i=0; (i < wifi_timeout_sec*2) && (wifi_status != WL_CONNECTED); i++) {
       Serial.print(".");
       wifi_status = WiFi.status();
       digitalWrite(LED_PIN, HIGH);
@@ -275,16 +276,16 @@ void setup() {
   }
 
   if (wifi_status != WL_CONNECTED) {
-    Serial.println("Wifi connect failed.");
-    Serial.println("Restart ...");
+    Serial.println("WiFi connection failed.");
+    Serial.println("Restarting...");
     esp_restart();
     return;
   } else {
-    Serial.println("WiFi connected!!");
-    Serial.print("ssid: ");
+    Serial.println("WiFi connected!");
+    Serial.print("SSID: ");
     Serial.println(ssid);
     String current_ipaddr = WiFi.localIP().toString();
-    Serial.print("ip addr: ");
+    Serial.print("IP address: ");
     Serial.println(current_ipaddr);
     if (new_ssid_pass) {
       config.write("ssid", ssid);
@@ -296,7 +297,7 @@ void setup() {
     }
   }
 
-  // ====== Webサーバー設定（同期型）======
+  // ====== Web server routes (synchronous) ======
   server.on("/", HTTP_GET, []() {
     server.send_P(200, "text/html", index_html);
   });
@@ -329,9 +330,9 @@ void setup() {
   });
 
   server.on("/save", HTTP_POST, []() {
-  String message = "<h1 style='color:green;'>Configuration Saved Successfully!</h1>"
-                   "<p>Settings have been applied immediately.</p>"
-                   "<p><a href='/'>Back to Monitor</a> | <a href='/config'>Back to Config</a></p>";
+    String message = "<h1 style='color:green;'>Configuration Saved Successfully!</h1>"
+                     "<p>Settings have been applied immediately.</p>"
+                     "<p><a href='/'>Back to Monitor</a> | <a href='/config'>Back to Config</a></p>";
 
     bool changed = false;
 
@@ -371,38 +372,37 @@ void setup() {
   server.begin();
   Serial.println("HTTP server started");
 
-  // 電力測定タスク起動
+  // Start power measurement task on core 0
   xTaskCreatePinnedToCore(powerTask, "PowerTask", 10000, NULL, 1, NULL, 0);
 }
 
 static int blinkLED = 0;
 void loop() {
-  digitalWrite(LED_PIN, (++blinkLED&1));
+  digitalWrite(LED_PIN, (++blinkLED & 1));  // Blink onboard LED
   server.handleClient();
   delay(1);
 
-  // 1分ごとにWiFi接続を確認
+  // Check Wi-Fi connection every minute
   unsigned long currentMillis = millis();
   if (currentMillis - last_wiFi_check >= wifi_check_interval) {
-      last_wiFi_check = currentMillis;
+    last_wiFi_check = currentMillis;
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("WiFi disconnected. Attempting to reconnect...");
-        WiFi.disconnect();
-        WiFi.reconnect();
-        
-        unsigned long startAttemptTime = millis();
-        while (WiFi.status() != WL_CONNECTED && 
-               millis() - startAttemptTime < wifi_recconect_interval) {
-            delay(100);
-            Serial.print(".");
-        }
-        if (WiFi.status() == WL_CONNECTED) {
-            Serial.println("\nWiFi reconnected");
-            Serial.println(WiFi.localIP());
-        } else {
-            Serial.println("\nFailed to reconnect to WiFi");
-        }
+      Serial.println("WiFi disconnected. Attempting to reconnect...");
+      WiFi.disconnect();
+      WiFi.reconnect();
+
+      unsigned long startAttemptTime = millis();
+      while (WiFi.status() != WL_CONNECTED && 
+             millis() - startAttemptTime < wifi_recconect_interval) {
+        delay(100);
+        Serial.print(".");
+      }
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nWiFi reconnected");
+        Serial.println(WiFi.localIP());
+      } else {
+        Serial.println("\nFailed to reconnect to WiFi");
+      }
     }
   }
-
 }
