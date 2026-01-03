@@ -24,20 +24,33 @@ def load_config():
         sys.exit(1)
 
 def fetch_device_power(device):
-    """Retrieve avg values from one device"""
+    """Retrieve avg values from one device with retry logic"""
     ipaddr = device['ipaddr']
     num_channels = device['num_channels']
     url = f"http://{ipaddr}/api/power"
     
-    try:
-        with urllib.request.urlopen(url, timeout=5) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            avg = data.get('avg', [])
-            # Limit to the specified number of channels
-            return avg[:num_channels]
-    except Exception as e:
-        print(f"Error fetching {device['name']} ({ipaddr}): {e}")
-        return [0.0] * num_channels
+    max_attempts = 4      # Total attempts: initial + 3 retries
+    timeout_sec = 2       # Timeout per attempt
+    
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=timeout_sec) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                avg = data.get('avg', [])
+                # Limit to the specified number of channels
+                return avg[:num_channels]
+        
+        except Exception as e:
+            if attempt == max_attempts:
+                # Last attempt failed → log error and return fallback values
+                print(f"Error fetching {device['name']} ({ipaddr}) after {max_attempts} attempts: {e}")
+                return [-1.0] * num_channels
+            else:
+                # Wait a moment before retrying (optional, but recommended)
+                print(f"Retry {attempt + 1}/{max_attempts} for {device['name']} ({ipaddr})...")
+    
+    # Unreachable, but kept for safety
+    return [-1.0] * num_channels
 
 def post_to_gas(post_url, post_data):
     """POST JSON data to Google Apps Script"""
