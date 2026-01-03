@@ -1,0 +1,10 @@
+{
+    "devices": [
+        {"name": "device1", "ipaddr":"192.168.1.53", "num_channels":1},
+        {"name": "device2", "ipaddr":"192.168.1.53", "num_channels":2},
+        {"name": "device3", "ipaddr":"192.168.1.53", "num_channels":2},
+        {"name": "device4", "ipaddr":"192.168.1.53", "num_channels":2}
+    ],
+    "post_url": "https://script.google.com/macros/s/XXXXXXXXXXXXXXXXXXXXXXXXXXXXX-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX-XXXX/exec"
+}
+
