@@ -24,8 +24,8 @@ unsigned long last_wiFi_check = 0;
 
 // 永続化設定（デフォルト値）
 int num_channel = 4;
-float watt_gain = 1.060;
-float watt_bias = -42.0;
+float watt_gain = 1.00;
+float watt_bias = -5.0;
 
 
 // ==================== グローバル ====================
