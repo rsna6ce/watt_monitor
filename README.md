@@ -31,7 +31,7 @@ A 10μF capacitor is connected in parallel between the analog pin and GND (for n
 
 ### Wiring Diagram (ASCII Art)
 
-@@@text
+```text
 ESP32 DOIT DEVKIT V1
 3.3V --- 4.7k --- (output1) -+- 4.7k -+- GND
                      |       |        |
@@ -41,7 +41,7 @@ ESP32 DOIT DEVKIT V1
                   (output2)---GPIO(32,33,34,35) (ADC)
 
 (Connect the same circuit in parallel for each channel)
-@@@
+```
 
 ### Usage
 1. Open the repository folder in Arduino IDE
@@ -53,12 +53,12 @@ ESP32 DOIT DEVKIT V1
 
 `latest` is the instantaneous value, `avg` is the 1-minute average value
 
-@@@json
+```json
 {
   "latest": [ch1, ch2, ch3, ch4],
   "avg": [ch1_avg, ch2_avg, ch3_avg, ch4_avg]
 }
-@@@
+```
 
 ## Server-side Script (server_py/watt_monitor_server.py)
 
@@ -69,14 +69,14 @@ It runs as a one-shot process, so it is executed periodically via crontab.
 - Python 3.x (standard libraries only, no external dependencies)
 - Place `param.json` in the same directory as the script
 
-@@@bash
+```bash
 cd server_py
 python3 watt_monitor_server.py   # Test execution
-@@@
+```
 
 ### param.json Example
 
-@@@json
+```json
 {
     "devices": [
         {"name": "device1", "ipaddr":"192.168.1.53", "num_channels":1},
@@ -86,19 +86,19 @@ python3 watt_monitor_server.py   # Test execution
     ],
     "post_url": "https://script.google.com/macros/s/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/exec"
 }
-@@@
+```
 
 ### Example: Run Every Minute via crontab
 
-@@@bash
+```bash
 crontab -e
-@@@
+```
 
 Add the following line:
 
-@@@cron
+```cron
 * * * * * /usr/bin/python3 /home/youruser/work/watt_monitor/server_py/watt_monitor_server.py
-@@@
+```
 
 ## Google Apps Script (server_py/watt_monitor_post.gs)
 
