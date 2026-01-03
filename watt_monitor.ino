@@ -111,7 +111,8 @@ function update() {
   fetch('/api/power')
     .then(r => r.json())
     .then(data => {
-      for (let i = 1; i <= 4; i++) {
+      const numChannels = data.latest.length;
+      for (let i = 1; i <= numChannels; i++) {
         document.getElementById('p' + i).textContent = data.latest[i-1].toFixed(1);
         document.getElementById('a' + i).textContent = data.avg[i-1].toFixed(1);
       }
