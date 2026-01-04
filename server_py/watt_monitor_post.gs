@@ -28,14 +28,10 @@ function doPost(e) {
     var lastRow = sheet.getLastRow();
     var targetRow;
     
-    if (lastRow >= maxRows + 1) {  // Header (1 row) + max data rows
-      // FIFO shift: copy rows 3 to (maxRows+1) → rows 2 to maxRows (preserves header)
-      var numCols = newRecord.length;
-      sheet.getRange(3, 1, maxRows, numCols).copyTo(sheet.getRange(2, 1));
-      targetRow = maxRows + 1;  // Write to the bottom row below the header
-    } else {
-      targetRow = lastRow + 1;  // Append to next empty row (row 2 on first run)
-    }
+    // FIFO shift: copy rows 2 to (maxRows) → rows 3 to maxRows+1 (preserves header)
+    var numCols = newRecord.length;
+    sheet.getRange(2, 1, maxRows-1, numCols).copyTo(sheet.getRange(3, 1));
+    targetRow = 2;  // Write to the top row below the header
     
     // Write the new record
     sheet.getRange(targetRow, 1, 1, newRecord.length).setValues([newRecord]);
